@@ -14,19 +14,17 @@ from annotator.canny import CannyDetector
 from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 
-
 apply_canny = CannyDetector()
 
 model = create_model('./models/cldm_v15.yaml').cpu()
-model.load_state_dict(load_state_dict('./models/control_sd15_canny.pth', location='cuda'))
+model.load_state_dict(load_state_dict('./models/control_sd15_canny.pth', location='cuda'), strict=False) 
 model = model.cuda()
 ddim_sampler = DDIMSampler(model)
-
 
 def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta, low_threshold, high_threshold):
     with torch.no_grad():
         img = resize_image(HWC3(input_image), image_resolution)
-        H, W, C = img.shape
+        H, W, C = img.shape 
 
         detected_map = apply_canny(img, low_threshold, high_threshold)
         detected_map = HWC3(detected_map)
@@ -49,7 +47,8 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         if config.save_memory:
             model.low_vram_shift(is_diffusing=True)
 
-        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
+        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
+
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -62,18 +61,20 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
         results = [x_samples[i] for i in range(num_samples)]
-    return [255 - detected_map] + results
+    return [255 - detected_map] + results 
 
-
+# --- UI Setup ---
 block = gr.Blocks().queue()
 with block:
     with gr.Row():
         gr.Markdown("## Control Stable Diffusion with Canny Edge Maps")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            # AGGIORNAMENTO: source="upload" diventa sources=["upload"]
+            input_image = gr.Image(sources=['upload'], type="numpy")
             prompt = gr.Textbox(label="Prompt")
-            run_button = gr.Button(label="Run")
+            # AGGIORNAMENTO: label="Run" diventa value="Run"
+            run_button = gr.Button(value="Run")
             with gr.Accordion("Advanced options", open=False):
                 num_samples = gr.Slider(label="Images", minimum=1, maximum=12, value=1, step=1)
                 image_resolution = gr.Slider(label="Image Resolution", minimum=256, maximum=768, value=512, step=64)
@@ -89,9 +90,12 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery").style(grid=2, height='auto')
+            # AGGIORNAMENTO: rimossa la concatenazione .style(grid=2, height='auto') e integrata nei parametri nativi
+            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
+            
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta, low_threshold, high_threshold]
     run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
 
-
-block.launch(server_name='0.0.0.0')
+if __name__ == "__main__":
+    # AGGIORNAMENTO: aggiunto share=True per permettere a Google Colab di esportare il link pubblico in modo pulito
+    block.launch(server_name='0.0.0.0', share=True)

@@ -14,14 +14,13 @@ from annotator.hed import HEDdetector
 from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 
-
 apply_hed = HEDdetector()
 
 model = create_model('./models/cldm_v15.yaml').cpu()
-model.load_state_dict(load_state_dict('./models/control_sd15_hed.pth', location='cuda'))
+# Aggiunto strict=False per ignorare i position_ids extra nei nuovi text encoder
+model.load_state_dict(load_state_dict('./models/control_sd15_hed.pth', location='cuda'), strict=False)
 model = model.cuda()
 ddim_sampler = DDIMSampler(model)
-
 
 def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, detect_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
     with torch.no_grad():
@@ -51,7 +50,7 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         if config.save_memory:
             model.low_vram_shift(is_diffusing=True)
 
-        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
+        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -66,16 +65,17 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         results = [x_samples[i] for i in range(num_samples)]
     return [detected_map] + results
 
-
 block = gr.Blocks().queue()
 with block:
     with gr.Row():
         gr.Markdown("## Control Stable Diffusion with HED Maps")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            # AGGIORNAMENTO: source='upload' -> sources=['upload']
+            input_image = gr.Image(sources=['upload'], type="numpy")
             prompt = gr.Textbox(label="Prompt")
-            run_button = gr.Button(label="Run")
+            # AGGIORNAMENTO: label="Run" -> value="Run"
+            run_button = gr.Button(value="Run")
             with gr.Accordion("Advanced options", open=False):
                 num_samples = gr.Slider(label="Images", minimum=1, maximum=12, value=1, step=1)
                 image_resolution = gr.Slider(label="Image Resolution", minimum=256, maximum=768, value=512, step=64)
@@ -90,9 +90,12 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery").style(grid=2, height='auto')
+            # AGGIORNAMENTO: rimossa concatenazione .style e aggiunto columns=2
+            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
+            
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, detect_resolution, ddim_steps, guess_mode, strength, scale, seed, eta]
     run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
 
-
-block.launch(server_name='0.0.0.0')
+if __name__ == "__main__":
+    # AGGIORNAMENTO: aggiunto share=True
+    block.launch(server_name='0.0.0.0', share=True)

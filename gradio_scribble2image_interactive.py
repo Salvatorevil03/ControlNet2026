@@ -13,20 +13,27 @@ from annotator.util import resize_image, HWC3
 from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 
-
 model = create_model('./models/cldm_v15.yaml').cpu()
-model.load_state_dict(load_state_dict('./models/control_sd15_scribble.pth', location='cuda'))
+# Aggiunto strict=False per ignorare i position_ids extra nei nuovi text encoder
+model.load_state_dict(load_state_dict('./models/control_sd15_scribble.pth', location='cuda'), strict=False)
 model = model.cuda()
 ddim_sampler = DDIMSampler(model)
 
-
-def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
+def process(input_dict, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
     with torch.no_grad():
-        img = resize_image(HWC3(input_image['mask'][:, :, 0]), image_resolution)
+        # Gestione del dizionario restituito da gr.ImageEditor in Gradio 4
+        if isinstance(input_dict, dict) and 'composite' in input_dict:
+            input_image = input_dict['composite']
+        else:
+            input_image = input_dict
+
+        img = resize_image(HWC3(input_image), image_resolution)
         H, W, C = img.shape
 
+        # Mappa binaria: assume che l'utente stia disegnando linee nere su sfondo bianco.
+        # Itera l'immagine e inverte, poiché ControlNet si aspetta linee bianche su sfondo nero.
         detected_map = np.zeros_like(img, dtype=np.uint8)
-        detected_map[np.min(img, axis=2) > 127] = 255
+        detected_map[np.min(img, axis=2) < 127] = 255
 
         control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
         control = torch.stack([control for _ in range(num_samples)], dim=0)
@@ -46,7 +53,7 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         if config.save_memory:
             model.low_vram_shift(is_diffusing=True)
 
-        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
+        model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -59,12 +66,12 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
         results = [x_samples[i] for i in range(num_samples)]
+        
+    # detected_map è già con sfondo nero e linee bianche, quindi la rimetto nero su bianco per la preview UI
     return [255 - detected_map] + results
-
 
 def create_canvas(w, h):
     return np.zeros(shape=(h, w, 3), dtype=np.uint8) + 255
-
 
 block = gr.Blocks().queue()
 with block:
@@ -74,13 +81,17 @@ with block:
         with gr.Column():
             canvas_width = gr.Slider(label="Canvas Width", minimum=256, maximum=1024, value=512, step=1)
             canvas_height = gr.Slider(label="Canvas Height", minimum=256, maximum=1024, value=512, step=1)
-            create_button = gr.Button(label="Start", value='Open drawing canvas!')
-            input_image = gr.Image(source='upload', type='numpy', tool='sketch')
-            gr.Markdown(value='Do not forget to change your brush width to make it thinner. (Gradio do not allow developers to set brush width so you need to do it manually.) '
-                              'Just click on the small pencil icon in the upper right corner of the above block.')
+            create_button = gr.Button(value='Open drawing canvas!')
+            
+            # Sostituito gr.Image(tool='sketch') con il nuovo gr.ImageEditor
+            input_image = gr.ImageEditor(type='numpy', sources=['upload'], width=512, height=512)
+            gr.Markdown(value='Genera il canvas cliccando il tasto, poi usa lo strumento pennello (nero) per disegnare lo scribble.')
+            
             create_button.click(fn=create_canvas, inputs=[canvas_width, canvas_height], outputs=[input_image])
+            
             prompt = gr.Textbox(label="Prompt")
-            run_button = gr.Button(label="Run")
+            run_button = gr.Button(value="Run")
+            
             with gr.Accordion("Advanced options", open=False):
                 num_samples = gr.Slider(label="Images", minimum=1, maximum=12, value=1, step=1)
                 image_resolution = gr.Slider(label="Image Resolution", minimum=256, maximum=768, value=512, step=64)
@@ -94,9 +105,11 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery").style(grid=2, height='auto')
+            # Rimosso il .style() deprecato
+            result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
+            
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta]
     run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
 
-
-block.launch(server_name='0.0.0.0')
+if __name__ == "__main__":
+    block.launch(server_name='0.0.0.0', share=True)

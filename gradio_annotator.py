@@ -1,5 +1,4 @@
 import gradio as gr
-# sono hay
 from annotator.util import resize_image, HWC3
 
 

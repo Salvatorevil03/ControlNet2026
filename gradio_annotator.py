@@ -82,78 +82,82 @@ def uniformer(img, res):
 
 block = gr.Blocks().queue()
 with block:
+    # --- CANNY EDGE ---
     with gr.Row():
         gr.Markdown("## Canny Edge")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            input_image_canny = gr.Image(sources=['upload'], type="numpy")
             low_threshold = gr.Slider(label="low_threshold", minimum=1, maximum=255, value=100, step=1)
             high_threshold = gr.Slider(label="high_threshold", minimum=1, maximum=255, value=200, step=1)
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
-            run_button = gr.Button(label="Run")
+            resolution_canny = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
+            run_button_canny = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=canny, inputs=[input_image, resolution, low_threshold, high_threshold], outputs=[gallery])
+            gallery_canny = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_canny.click(fn=canny, inputs=[input_image_canny, resolution_canny, low_threshold, high_threshold], outputs=[gallery_canny])
 
+    # --- HED EDGE ---
     with gr.Row():
         gr.Markdown("## HED Edge")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
-            run_button = gr.Button(label="Run")
+            input_image_hed = gr.Image(sources=['upload'], type="numpy")
+            resolution_hed = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
+            run_button_hed = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=hed, inputs=[input_image, resolution], outputs=[gallery])
-
+            gallery_hed = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_hed.click(fn=hed, inputs=[input_image_hed, resolution_hed], outputs=[gallery_hed])
+    # --- MLSD EDGE ---
     with gr.Row():
         gr.Markdown("## MLSD Edge")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            input_image_mlsd = gr.Image(sources=['upload'], type="numpy")
             value_threshold = gr.Slider(label="value_threshold", minimum=0.01, maximum=2.0, value=0.1, step=0.01)
             distance_threshold = gr.Slider(label="distance_threshold", minimum=0.01, maximum=20.0, value=0.1, step=0.01)
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=384, step=64)
-            run_button = gr.Button(label="Run")
+            resolution_mlsd = gr.Slider(label="resolution", minimum=256, maximum=1024, value=384, step=64)
+            run_button_mlsd = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=mlsd, inputs=[input_image, resolution, value_threshold, distance_threshold], outputs=[gallery])
+            gallery_mlsd = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_mlsd.click(fn=mlsd, inputs=[input_image_mlsd, resolution_mlsd, value_threshold, distance_threshold], outputs=[gallery_mlsd])
 
+    # --- MIDAS DEPTH ---
     with gr.Row():
         gr.Markdown("## MIDAS Depth and Normal")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            input_image_midas = gr.Image(sources=['upload'], type="numpy")
             alpha = gr.Slider(label="alpha", minimum=0.1, maximum=20.0, value=6.2, step=0.01)
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=384, step=64)
-            run_button = gr.Button(label="Run")
+            resolution_midas = gr.Slider(label="resolution", minimum=256, maximum=1024, value=384, step=64)
+            run_button_midas = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=midas, inputs=[input_image, resolution, alpha], outputs=[gallery])
+            gallery_midas = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_midas.click(fn=midas, inputs=[input_image_midas, resolution_midas, alpha], outputs=[gallery_midas])
 
+    # --- OPENPOSE ---
     with gr.Row():
         gr.Markdown("## Openpose")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
+            input_image_openpose = gr.Image(sources=['upload'], type="numpy")
             hand = gr.Checkbox(label='detect hand', value=False)
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
-            run_button = gr.Button(label="Run")
+            resolution_openpose = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
+            run_button_openpose = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=openpose, inputs=[input_image, resolution, hand], outputs=[gallery])
+            gallery_openpose = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_openpose.click(fn=openpose, inputs=[input_image_openpose, resolution_openpose, hand], outputs=[gallery_openpose])
 
-
+    # --- UNIFORMER ---
     with gr.Row():
         gr.Markdown("## Uniformer Segmentation")
     with gr.Row():
         with gr.Column():
-            input_image = gr.Image(source='upload', type="numpy")
-            resolution = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
-            run_button = gr.Button(label="Run")
+            input_image_uniformer = gr.Image(sources=['upload'], type="numpy")
+            resolution_uniformer = gr.Slider(label="resolution", minimum=256, maximum=1024, value=512, step=64)
+            run_button_uniformer = gr.Button(value="Run")
         with gr.Column():
-            gallery = gr.Gallery(label="Generated images", show_label=False).style(height="auto")
-    run_button.click(fn=uniformer, inputs=[input_image, resolution], outputs=[gallery])
+            gallery_uniformer = gr.Gallery(label="Generated images", show_label=False, height="auto")
+    run_button_uniformer.click(fn=uniformer, inputs=[input_image_uniformer, resolution_uniformer], outputs=[gallery_uniformer])
 
 
-block.launch(server_name='0.0.0.0')
+block.launch(server_name='0.0.0.0',share=True)

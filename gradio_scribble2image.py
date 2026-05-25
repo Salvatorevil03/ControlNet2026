@@ -46,10 +46,13 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
             model.low_vram_shift(is_diffusing=True)
 
         model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
+        
+        # AGGIUNTO: log_every_t=1
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
-                                                     unconditional_conditioning=un_cond)
+                                                     unconditional_conditioning=un_cond,
+                                                     log_every_t=1)
 
         if config.save_memory:
             model.low_vram_shift(is_diffusing=False)
@@ -58,7 +61,25 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
         results = [x_samples[i] for i in range(num_samples)]
-    return [255 - detected_map] + results
+        
+        # AGGIUNTA: Estrazione e decodifica di Sample x0
+        inter_images = []
+        for step_latent in intermediates['pred_x0'][1:]:
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images.append(dec[0])
+
+        # AGGIUNTA: Estrazione e decodifica del Denoising Step
+        inter_images_noise = []
+        for step_latent in intermediates['x_inter'][1:]: 
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images_noise.append(dec[0])
+
+    # AGGIUNTA: Restituzione delle due nuove liste di step
+    return [255 - detected_map] + results, inter_images, inter_images_noise
 
 block = gr.Blocks().queue()
 with block:
@@ -66,10 +87,8 @@ with block:
         gr.Markdown("## Control Stable Diffusion with Scribble Maps")
     with gr.Row():
         with gr.Column():
-            # AGGIORNAMENTO: source='upload' -> sources=['upload']
             input_image = gr.Image(sources=['upload'], type="numpy")
             prompt = gr.Textbox(label="Prompt")
-            # AGGIORNAMENTO: label="Run" -> value="Run"
             run_button = gr.Button(value="Run")
             with gr.Accordion("Advanced options", open=False):
                 num_samples = gr.Slider(label="Images", minimum=1, maximum=12, value=1, step=1)
@@ -84,12 +103,16 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            # AGGIORNAMENTO: rimossa concatenazione .style e aggiunto columns=2
             result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
             
+            # AGGIUNTA: Nuove griglie per visualizzare i progressi del modello
+            intermediate_gallery = gr.Gallery(label='Preview of Sample x0', show_label=True, elem_id="gallery_inter", columns=4)
+            denoised_Step = gr.Gallery(label='Denoising Step', show_label=True, elem_id="gallery_inter", columns=4)
+            
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta]
-    run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
+    
+    # AGGIORNAMENTO: Aggiunti gli output intermedi al bottone Run
+    run_button.click(fn=process, inputs=ips, outputs=[result_gallery, intermediate_gallery, denoised_Step])
 
 if __name__ == "__main__":
-    # AGGIORNAMENTO: aggiunto share=True
     block.launch(server_name='0.0.0.0', share=True)

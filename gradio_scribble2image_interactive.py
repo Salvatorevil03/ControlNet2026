@@ -30,8 +30,6 @@ def process(input_dict, prompt, a_prompt, n_prompt, num_samples, image_resolutio
         img = resize_image(HWC3(input_image), image_resolution)
         H, W, C = img.shape
 
-        # Mappa binaria: assume che l'utente stia disegnando linee nere su sfondo bianco.
-        # Itera l'immagine e inverte, poiché ControlNet si aspetta linee bianche su sfondo nero.
         detected_map = np.zeros_like(img, dtype=np.uint8)
         detected_map[np.min(img, axis=2) < 127] = 255
 
@@ -54,10 +52,13 @@ def process(input_dict, prompt, a_prompt, n_prompt, num_samples, image_resolutio
             model.low_vram_shift(is_diffusing=True)
 
         model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
+        
+        # AGGIUNTO: log_every_t=1
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
-                                                     unconditional_conditioning=un_cond)
+                                                     unconditional_conditioning=un_cond,
+                                                     log_every_t=1)
 
         if config.save_memory:
             model.low_vram_shift(is_diffusing=False)
@@ -67,8 +68,23 @@ def process(input_dict, prompt, a_prompt, n_prompt, num_samples, image_resolutio
 
         results = [x_samples[i] for i in range(num_samples)]
         
-    # detected_map è già con sfondo nero e linee bianche, quindi la rimetto nero su bianco per la preview UI
-    return [255 - detected_map] + results
+        # AGGIUNTA: Estrazione e decodifica di Sample x0
+        inter_images = []
+        for step_latent in intermediates['pred_x0'][1:]:
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images.append(dec[0])
+
+        # AGGIUNTA: Estrazione e decodifica del Denoising Step
+        inter_images_noise = []
+        for step_latent in intermediates['x_inter'][1:]: 
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images_noise.append(dec[0])
+
+    return [255 - detected_map] + results, inter_images, inter_images_noise
 
 def create_canvas(w, h):
     return np.zeros(shape=(h, w, 3), dtype=np.uint8) + 255
@@ -83,7 +99,6 @@ with block:
             canvas_height = gr.Slider(label="Canvas Height", minimum=256, maximum=1024, value=512, step=1)
             create_button = gr.Button(value='Open drawing canvas!')
             
-            # Sostituito gr.Image(tool='sketch') con il nuovo gr.ImageEditor
             input_image = gr.ImageEditor(type='numpy', sources=['upload'], width=512, height=512)
             gr.Markdown(value='Genera il canvas cliccando il tasto, poi usa lo strumento pennello (nero) per disegnare lo scribble.')
             
@@ -105,11 +120,16 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            # Rimosso il .style() deprecato
             result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
             
+            # AGGIUNTA: Nuove gallerie per gli step
+            intermediate_gallery = gr.Gallery(label='Preview of Sample x0', show_label=True, elem_id="gallery_inter", columns=4)
+            denoised_Step = gr.Gallery(label='Denoising Step', show_label=True, elem_id="gallery_inter", columns=4)
+            
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta]
-    run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
+    
+    # AGGIORNAMENTO: Aggiunti gli output al click
+    run_button.click(fn=process, inputs=ips, outputs=[result_gallery, intermediate_gallery, denoised_Step])
 
 if __name__ == "__main__":
     block.launch(server_name='0.0.0.0', share=True)

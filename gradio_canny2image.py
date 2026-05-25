@@ -52,7 +52,8 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
-                                                     unconditional_conditioning=un_cond)
+                                                     unconditional_conditioning=un_cond,
+                                                     log_every_t=1)
 
         if config.save_memory:
             model.low_vram_shift(is_diffusing=False)
@@ -61,6 +62,12 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
         results = [x_samples[i] for i in range(num_samples)]
+        inter_images = []
+        for step_latent in intermediates['pred_x0'][1:]:
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images.append(dec[0])
     return [255 - detected_map] + results 
 
 # --- UI Setup ---
@@ -92,9 +99,10 @@ with block:
         with gr.Column():
             # AGGIORNAMENTO: rimossa la concatenazione .style(grid=2, height='auto') e integrata nei parametri nativi
             result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
-            
+            # AGGIUNGI QUESTA RIGA:
+            intermediate_gallery = gr.Gallery(label='Intermediate Denoising Steps (Preview of Sample 1)', show_label=True, elem_id="gallery_inter", columns=4)
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta, low_threshold, high_threshold]
-    run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
+    run_button.click(fn=process, inputs=ips, outputs=[result_gallery, intermediate_gallery])
 
 if __name__ == "__main__":
     # AGGIORNAMENTO: aggiunto share=True per permettere a Google Colab di esportare il link pubblico in modo pulito

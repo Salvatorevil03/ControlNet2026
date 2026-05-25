@@ -8,6 +8,8 @@ from typing import Optional, Any
 
 from ldm.modules.diffusionmodules.util import checkpoint
 
+STORE_ATTN = []
+EXPECTED_SHAPE = 256  # Valore di default
 
 try:
     import xformers
@@ -161,6 +163,12 @@ class CrossAttention(nn.Module):
         )
 
     def forward(self, x, context=None, mask=None):
+      #  2. Come riconoscere la Cross-Attention
+      #  In ldm, la stessa classe CrossAttention viene usata sia per la self-attention (pixel-pixel) sia per la cross-attention vera e propria (pixel-testo).
+      #  Il trucco per distinguerle è guardare l'argomento context:
+      #  Se context è None, la rete sta facendo self-attention (usa x sia per le Query che per Key/Value).
+      #  Se context non è None, contiene gli embedding testuali di CLIP. Questa è la cross-attention che interessa a noi!
+
         h = self.heads
 
         q = self.to_q(x)
@@ -187,7 +195,15 @@ class CrossAttention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        sim = sim.softmax(dim=-1)
+        sim = sim.softmax(dim=-1) # MAPPA M 
+        
+        is_cross_attention = context is not None #se stiamo incrociando col testo non dobbiamo portarci la mappa
+        # 3. SALVATAGGIO TOTALMENTE DINAMICO
+        if is_cross_attention and sim.shape[-1] == 77:
+            global EXPECTED_SHAPE
+            global STORE_ATTN
+            if sim.shape[1] == EXPECTED_SHAPE:
+                STORE_ATTN.append(sim.detach().half().cpu())
 
         out = einsum('b i j, b j d -> b i d', sim, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)

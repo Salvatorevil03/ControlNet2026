@@ -49,6 +49,7 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
 
         model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)
 
+        # AGGIUNTA: log_every_t=1 forza il salvataggio dei tensori latenti ad ogni step
         samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -62,13 +63,31 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
         results = [x_samples[i] for i in range(num_samples)]
+        
+        # AGGIUNTA: Processamento degli step intermedi per la visualizzazione
         inter_images = []
+        # 'pred_x0' contiene le predizioni dell'immagine senza rumore a ogni step.
+        # Evitiamo l'indice [0] perché solitamente è il frame vuoto iniziale fortemente rumoroso.
         for step_latent in intermediates['pred_x0'][1:]:
+            # Per evitare un Out of Memory (OOM) dovuto alla decodifica di multipli campioni per 20+ step,
+            # decodifichiamo solo il primissimo sample [0:1] della batch corrente.
             single_latent = step_latent[0:1]
             dec = model.decode_first_stage(single_latent)
             dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
             inter_images.append(dec[0])
-    return [255 - detected_map] + results 
+
+        # TROVA QUESTO BLOCCO ALLA FINE DI process():
+        inter_images_noise = []
+        
+        # CAMBIA 'pred_x0' IN 'x_inter' IN QUESTA RIGA:
+        for step_latent in intermediates['x_inter'][1:]: 
+            single_latent = step_latent[0:1]
+            dec = model.decode_first_stage(single_latent)
+            dec = (einops.rearrange(dec, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
+            inter_images_noise.append(dec[0])
+
+    # Ora restituiamo due liste di immagini invece di una sola
+    return [255 - detected_map] + results, inter_images, inter_images_noise
 
 # --- UI Setup ---
 block = gr.Blocks().queue()
@@ -77,10 +96,8 @@ with block:
         gr.Markdown("## Control Stable Diffusion with Canny Edge Maps")
     with gr.Row():
         with gr.Column():
-            # AGGIORNAMENTO: source="upload" diventa sources=["upload"]
             input_image = gr.Image(sources=['upload'], type="numpy")
             prompt = gr.Textbox(label="Prompt")
-            # AGGIORNAMENTO: label="Run" diventa value="Run"
             run_button = gr.Button(value="Run")
             with gr.Accordion("Advanced options", open=False):
                 num_samples = gr.Slider(label="Images", minimum=1, maximum=12, value=1, step=1)
@@ -97,13 +114,15 @@ with block:
                 n_prompt = gr.Textbox(label="Negative Prompt",
                                       value='longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality')
         with gr.Column():
-            # AGGIORNAMENTO: rimossa la concatenazione .style(grid=2, height='auto') e integrata nei parametri nativi
             result_gallery = gr.Gallery(label='Output', show_label=False, elem_id="gallery", columns=2)
-            # AGGIUNGI QUESTA RIGA:
-            intermediate_gallery = gr.Gallery(label='Intermediate Denoising Steps (Preview of Sample 1)', show_label=True, elem_id="gallery_inter", columns=4)
+            
+            # AGGIUNTA: Nuova griglia per visualizzare i progressi del modello
+            intermediate_gallery = gr.Gallery(label='Preview of Sample x0', show_label=True, elem_id="gallery_inter", columns=4)
+            denoised_Step = gr.Gallery(label='Denoising Step', show_label=True, elem_id="gallery_inter", columns=4)
     ips = [input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta, low_threshold, high_threshold]
-    run_button.click(fn=process, inputs=ips, outputs=[result_gallery, intermediate_gallery])
+    
+    # AGGIORNAMENTO: Agganciamo entrambi gli output alle gallery
+    run_button.click(fn=process, inputs=ips, outputs=[result_gallery, intermediate_gallery,denoised_Step])
 
 if __name__ == "__main__":
-    # AGGIORNAMENTO: aggiunto share=True per permettere a Google Colab di esportare il link pubblico in modo pulito
     block.launch(server_name='0.0.0.0', share=True)

@@ -11,6 +11,13 @@ from ldm.modules.diffusionmodules.util import checkpoint
 STORE_ATTN = []
 EXPECTED_SHAPE = 256  # Valore di default
 
+# --- NUOVE VARIABILI GLOBALI PER PROMPT-TO-PROMPT (ISOLATE DALLA UI) ---
+P2P_READ_MODE = False      # True = Fase Source: salva le mappe per l'algoritmo
+P2P_INJECT_MODE = False    # True = Fase Target: sovrascrive l'attenzione
+P2P_SOURCE_ATTN = []       # Lista 2: Salva passivamente le mappe originali (Source)
+P2P_INJECT_ATTN = []       # Lista 3: Contiene le mappe preparate (con i None dopo tau) da iniettare
+P2P_INJECT_INDEX = 0       # Contatore sequenziale per la fase di iniezione
+
 try:
     import xformers
     import xformers.ops
@@ -202,8 +209,24 @@ class CrossAttention(nn.Module):
         if is_cross_attention and sim.shape[-1] == 77:
             global EXPECTED_SHAPE
             global STORE_ATTN
+            global P2P_READ_MODE, P2P_INJECT_MODE
+            global P2P_SOURCE_ATTN, P2P_INJECT_ATTN, P2P_INJECT_INDEX
+            # 1. Cerco di lasciare invariata la logica precedente per il plot delle mappe
             if sim.shape[1] == EXPECTED_SHAPE:
                 STORE_ATTN.append(sim.detach().half().cpu())
+
+                # 2. LOGICA P2P: Fase di Estrazione (Source)
+                if P2P_READ_MODE:
+                    P2P_SOURCE_ATTN.append(sim.detach().half().cpu())
+
+                # 3. LOGICA P2P: Fase di Iniezione (Target)
+                if P2P_INJECT_MODE:
+                    if P2P_INJECT_INDEX < len(P2P_INJECT_ATTN):
+                        injected_map = P2P_INJECT_ATTN[P2P_INJECT_INDEX]
+                        # Se la mappa non è None, sovrascriviamo l'attenzione naturale del modello
+                        if injected_map is not None:
+                            sim = injected_map.to(device=sim.device, dtype=sim.dtype)
+                        P2P_INJECT_INDEX += 1
 
         out = einsum('b i j, b j d -> b i d', sim, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
@@ -354,4 +377,3 @@ class SpatialTransformer(nn.Module):
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
-

@@ -377,3 +377,4 @@ class SpatialTransformer(nn.Module):
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
+
